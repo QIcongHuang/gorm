@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm/schema"
 )
 
-// Dialector GORM database dialector
+// Dialector GORM database dialector 拨号器
 type Dialector interface {
 	Name() string
 	Initialize(*DB) error

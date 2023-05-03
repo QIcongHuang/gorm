@@ -91,10 +91,10 @@ type Option interface {
 
 // DB GORM DB definition
 type DB struct {
-	*Config
+	*Config      // 和连接等相关的信息
 	Error        error
 	RowsAffected int64
-	Statement    *Statement
+	Statement    *Statement // SQL语句执行相关信息
 	clone        int
 }
 
@@ -117,9 +117,12 @@ type Session struct {
 }
 
 // Open initialize db session based on dialector
+// dialector 不同的数据库类型对应不同的dialector，MySQL使用mysql.Open(dsn)来生成对应的dialector
+// opts 传入多个配置，一般传入&gorm.Config{}
 func Open(dialector Dialector, opts ...Option) (db *DB, err error) {
 	config := &Config{}
 
+	//对配置opts进行排序，*Config的Apply(*Config)方法会直接覆盖当前config，因此将*Config类型的配置放在最前面
 	sort.Slice(opts, func(i, j int) bool {
 		_, isConfig := opts[i].(*Config)
 		_, isConfig2 := opts[j].(*Config)
@@ -132,6 +135,7 @@ func Open(dialector Dialector, opts ...Option) (db *DB, err error) {
 				return nil, applyErr
 			}
 			defer func(opt Option) {
+				// 可以在db连接后执行一些初始化操作，例如注册插件等等
 				if errr := opt.AfterInitialize(db); errr != nil {
 					err = errr
 				}
@@ -140,6 +144,7 @@ func Open(dialector Dialector, opts ...Option) (db *DB, err error) {
 	}
 
 	if d, ok := dialector.(interface{ Apply(*Config) error }); ok {
+		// dialector追加配置
 		if err = d.Apply(config); err != nil {
 			return
 		}
@@ -169,8 +174,9 @@ func Open(dialector Dialector, opts ...Option) (db *DB, err error) {
 		config.cacheStore = &sync.Map{}
 	}
 
+	// 初始化gorm.DB对象，后续操作通过clone该对象进行调用
 	db = &DB{Config: config, clone: 1}
-
+	// 初始化执行函数
 	db.callbacks = initializeCallbacks(db)
 
 	if config.ClauseBuilders == nil {
@@ -178,6 +184,7 @@ func Open(dialector Dialector, opts ...Option) (db *DB, err error) {
 	}
 
 	if config.Dialector != nil {
+		// 建立数据库连接
 		err = config.Dialector.Initialize(db)
 
 		if err != nil {
@@ -208,6 +215,7 @@ func Open(dialector Dialector, opts ...Option) (db *DB, err error) {
 
 	if err == nil && !config.DisableAutomaticPing {
 		if pinger, ok := db.ConnPool.(interface{ Ping() error }); ok {
+			// 通过ping确定连接无问题
 			err = pinger.Ping()
 		}
 	}
@@ -386,7 +394,7 @@ func (db *DB) DB() (*sql.DB, error) {
 	return nil, ErrInvalidDB
 }
 
-func (db *DB) getInstance() *DB {
+func (db *DB) getInstance() *DB { // 根据db.clone看是否重新生成DB，返回DB
 	if db.clone > 0 {
 		tx := &DB{Config: db.Config, Error: db.Error}
 
